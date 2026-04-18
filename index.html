@@ -1,0 +1,1271 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Sphere Platformer</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: #000;
+        font-family:
+          -apple-system,
+          Segoe UI,
+          Helvetica,
+          Arial,
+          sans-serif;
+        color: #fff;
+      }
+      #info {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        background: rgba(10, 14, 30, 0.55);
+        padding: 10px 14px;
+        border-radius: 10px;
+        font-size: 13px;
+        backdrop-filter: blur(6px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        pointer-events: none;
+        line-height: 1.4;
+      }
+      #info b {
+        color: #ffd166;
+      }
+      #win {
+        position: absolute;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        text-align: center;
+        background: radial-gradient(
+          circle at center,
+          rgba(255, 138, 43, 0.25),
+          transparent 60%
+        );
+        pointer-events: none;
+      }
+      #win.show {
+        display: flex;
+      }
+      #win h1 {
+        font-size: 64px;
+        margin: 0;
+        color: #ffb347;
+        text-shadow:
+          0 0 24px rgba(255, 138, 43, 0.9),
+          0 0 40px rgba(255, 138, 43, 0.4);
+        animation: pulse 1.4s ease-in-out infinite;
+      }
+      #win p {
+        font-size: 18px;
+        opacity: 0.85;
+        margin-top: 12px;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.06);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="info">
+      <div><b>Sphere Platformer</b></div>
+      <div>← / → &nbsp; orbit camera</div>
+      <div>↑ / ↓ &nbsp; move forward / back</div>
+      <div>Space &nbsp; jump</div>
+      <div>R &nbsp; reset</div>
+    </div>
+    <div id="win">
+      <h1>YOU MADE IT!</h1>
+      <p>Press R to play again</p>
+    </div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from "three";
+      import levelJson from "./data/levels/0.json" with { type: "json" };
+
+      // ---------- renderer / scene ----------
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      document.body.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x05060f);
+      scene.fog = new THREE.Fog(0x05060f, 80, 260);
+
+      const camera = new THREE.PerspectiveCamera(
+        60,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        600,
+      );
+
+      // ---------- starfield ----------
+      function buildStars() {
+        const count = 3000;
+        const geom = new THREE.BufferGeometry();
+        const pos = new Float32Array(count * 3);
+        const col = new Float32Array(count * 3);
+        for (let i = 0; i < count; i++) {
+          const r = 220 + Math.random() * 140;
+          const theta = Math.random() * Math.PI * 2;
+          const phi = Math.acos(2 * Math.random() - 1);
+          pos[i * 3 + 0] = r * Math.sin(phi) * Math.cos(theta);
+          pos[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+          pos[i * 3 + 2] = r * Math.cos(phi);
+          const c = 0.7 + Math.random() * 0.3;
+          const tint = Math.random();
+          col[i * 3 + 0] = c * (tint < 0.1 ? 1 : 0.95);
+          col[i * 3 + 1] = c * (tint < 0.2 ? 0.8 : 0.98);
+          col[i * 3 + 2] = c + Math.random() * 0.15;
+        }
+        geom.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+        geom.setAttribute("color", new THREE.BufferAttribute(col, 3));
+        const mat = new THREE.PointsMaterial({
+          size: 1.1,
+          vertexColors: true,
+          sizeAttenuation: true,
+          transparent: true,
+          opacity: 0.95,
+        });
+        return new THREE.Points(geom, mat);
+      }
+      scene.add(buildStars());
+
+      // distant nebula glow
+      const nebula = new THREE.Mesh(
+        new THREE.SphereGeometry(360, 32, 16),
+        new THREE.MeshBasicMaterial({
+          color: 0x4422aa,
+          side: THREE.BackSide,
+          transparent: true,
+          opacity: 0.12,
+        }),
+      );
+      scene.add(nebula);
+
+      // ---------- lights ----------
+      scene.add(new THREE.AmbientLight(0x8899ff, 0.45));
+      const sun = new THREE.DirectionalLight(0xfff2d0, 1.3);
+      sun.position.set(40, 70, 30);
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(2048, 2048);
+      const s = 120;
+      sun.shadow.camera.left = -s;
+      sun.shadow.camera.right = s;
+      sun.shadow.camera.top = s;
+      sun.shadow.camera.bottom = -s;
+      sun.shadow.camera.near = 1;
+      sun.shadow.camera.far = 300;
+      sun.shadow.bias = -0.0005;
+      scene.add(sun);
+      const rim = new THREE.DirectionalLight(0x88aaff, 0.4);
+      rim.position.set(-30, 20, -40);
+      scene.add(rim);
+
+      // ---------- toon gradient ----------
+      function makeToonGradient() {
+        const data = new Uint8Array([
+          70, 70, 70, 255, 150, 150, 150, 255, 220, 220, 220, 255, 255, 255,
+          255, 255,
+        ]);
+        const tex = new THREE.DataTexture(data, 4, 1, THREE.RGBAFormat);
+        tex.needsUpdate = true;
+        return tex;
+      }
+      const gradientMap = makeToonGradient();
+      function toonMat(color) {
+        return new THREE.MeshToonMaterial({ color, gradientMap });
+      }
+      function shade(hex, amt) {
+        const c = new THREE.Color(hex);
+        c.offsetHSL(0, 0, amt);
+        return c.getHex();
+      }
+
+      // ---------- platforms ----------
+      const platforms = [];
+      const platformGroup = new THREE.Group();
+      scene.add(platformGroup);
+
+      function addOutline(mesh, scale = 1.04) {
+        const outline = new THREE.Mesh(
+          mesh.geometry,
+          new THREE.MeshBasicMaterial({
+            color: 0x0a0a14,
+            side: THREE.BackSide,
+          }),
+        );
+        outline.scale.setScalar(scale);
+        mesh.add(outline);
+      }
+
+      function addPlatform(cfg) {
+        let mesh;
+        const mat = toonMat(cfg.color);
+        if (cfg.shape === "box") {
+          mesh = new THREE.Mesh(
+            new THREE.BoxGeometry(cfg.w, cfg.h, cfg.d),
+            mat,
+          );
+          mesh.userData.halfSize = { x: cfg.w / 2, y: cfg.h / 2, z: cfg.d / 2 };
+          mesh.userData.shape = "box";
+        } else if (cfg.shape === "cyl") {
+          mesh = new THREE.Mesh(
+            new THREE.CylinderGeometry(cfg.r, cfg.r, cfg.h, 48),
+            mat,
+          );
+          mesh.userData.radius = cfg.r;
+          mesh.userData.halfH = cfg.h / 2;
+          mesh.userData.shape = "cyl";
+        } else if (cfg.shape === "hex") {
+          mesh = new THREE.Mesh(
+            new THREE.CylinderGeometry(cfg.r, cfg.r, cfg.h, 6),
+            mat,
+          );
+          mesh.userData.radius = cfg.r * 0.92; // inradius approximation
+          mesh.userData.halfH = cfg.h / 2;
+          mesh.userData.shape = "hex";
+        }
+        mesh.position.set(cfg.x, cfg.y, cfg.z);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        mesh.userData.type = cfg.type;
+        mesh.userData.baseY = cfg.y;
+        mesh.userData.active = true;
+        mesh.userData.baseColor = cfg.color;
+        if (cfg.type === "red") {
+          mesh.userData.timer = null;
+          mesh.userData.falling = false;
+          mesh.userData.fallVel = 0;
+        }
+        if (cfg.type === "yellow") {
+          mesh.userData.spin = 1.0 + Math.random() * 1.4;
+        }
+        addOutline(mesh);
+        platformGroup.add(mesh);
+        platforms.push(mesh);
+        return mesh;
+      }
+
+      // ---------- enemies ----------
+      const enemies = [];
+      const enemyGroup = new THREE.Group();
+      scene.add(enemyGroup);
+      let pyramidSmashedPlayer = false;
+
+      // mad face texture used on all faces of the pyramid.
+      // White background so the material color (yellow → red) multiplies through cleanly.
+      function makeMadFaceTexture() {
+        const canvas = document.createElement("canvas");
+        canvas.width = 128;
+        canvas.height = 128;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, 128, 128);
+        // angry slanted eyebrows
+        ctx.strokeStyle = "#0a0a14";
+        ctx.lineWidth = 10;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(24, 50);
+        ctx.lineTo(56, 64);
+        ctx.moveTo(104, 50);
+        ctx.lineTo(72, 64);
+        ctx.stroke();
+        // black-dot eyes (skipping eye whites so the yellow body shows around them)
+        ctx.fillStyle = "#0a0a14";
+        ctx.beginPath();
+        ctx.arc(48, 76, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(80, 76, 6, 0, Math.PI * 2);
+        ctx.fill();
+        // jagged snarl mouth
+        ctx.strokeStyle = "#0a0a14";
+        ctx.lineWidth = 5;
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        ctx.moveTo(38, 104);
+        ctx.lineTo(48, 94);
+        ctx.lineTo(56, 102);
+        ctx.lineTo(64, 93);
+        ctx.lineTo(72, 102);
+        ctx.lineTo(80, 94);
+        ctx.lineTo(92, 104);
+        ctx.stroke();
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = 4;
+        return tex;
+      }
+      const madFaceTexture = makeMadFaceTexture();
+
+      // pyramid geometry where each triangular face carries a full 0..1 UV
+      function makePyramidGeometry(radius, height) {
+        const r = radius,
+          h = height;
+        const apex = [0, h * 0.5, 0];
+        const c1 = [r, -h * 0.5, r];
+        const c2 = [-r, -h * 0.5, r];
+        const c3 = [-r, -h * 0.5, -r];
+        const c4 = [r, -h * 0.5, -r];
+        const positions = [],
+          uvs = [],
+          normals = [];
+        function face(a, b, c) {
+          positions.push(...a, ...b, ...c);
+          uvs.push(0.5, 1, 0, 0, 1, 0);
+          const v1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+          const v2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+          const n = [
+            v1[1] * v2[2] - v1[2] * v2[1],
+            v1[2] * v2[0] - v1[0] * v2[2],
+            v1[0] * v2[1] - v1[1] * v2[0],
+          ];
+          const l = Math.hypot(n[0], n[1], n[2]) || 1;
+          n[0] /= l;
+          n[1] /= l;
+          n[2] /= l;
+          for (let i = 0; i < 3; i++) normals.push(n[0], n[1], n[2]);
+        }
+        face(apex, c2, c1);
+        face(apex, c3, c2);
+        face(apex, c4, c3);
+        face(apex, c1, c4);
+        // base (unused UVs)
+        positions.push(...c1, ...c3, ...c2);
+        positions.push(...c1, ...c4, ...c3);
+        uvs.push(0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1);
+        for (let i = 0; i < 6; i++) normals.push(0, -1, 0);
+        const g = new THREE.BufferGeometry();
+        g.setAttribute(
+          "position",
+          new THREE.Float32BufferAttribute(positions, 3),
+        );
+        g.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+        g.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
+        return g;
+      }
+
+      // smoke puff particles for the pyramid
+      const smokeParticles = [];
+      function spawnSmokePuff(position, count = 10) {
+        for (let i = 0; i < count; i++) {
+          const mat = new THREE.MeshBasicMaterial({
+            color: 0xc8ccd4,
+            transparent: true,
+            opacity: 0.75,
+          });
+          const mesh = new THREE.Mesh(
+            new THREE.SphereGeometry(0.22, 10, 8),
+            mat,
+          );
+          mesh.position.copy(position);
+          const theta = Math.random() * Math.PI * 2;
+          const speed = 1.2 + Math.random() * 2.2;
+          mesh.userData.vel = new THREE.Vector3(
+            Math.cos(theta) * speed,
+            Math.random() * 2.4,
+            Math.sin(theta) * speed,
+          );
+          mesh.userData.life = 0;
+          mesh.userData.lifespan = 0.6 + Math.random() * 0.35;
+          scene.add(mesh);
+          smokeParticles.push(mesh);
+        }
+      }
+      function updateSmoke(dt) {
+        for (let i = smokeParticles.length - 1; i >= 0; i--) {
+          const s = smokeParticles[i];
+          s.userData.life += dt;
+          s.position.addScaledVector(s.userData.vel, dt);
+          s.userData.vel.multiplyScalar(0.9);
+          const t = s.userData.life / s.userData.lifespan;
+          s.material.opacity = Math.max(0, 0.75 * (1 - t));
+          s.scale.setScalar(1 + t * 1.6);
+          if (t >= 1) {
+            scene.remove(s);
+            s.geometry.dispose();
+            s.material.dispose();
+            smokeParticles.splice(i, 1);
+          }
+        }
+      }
+
+      // ----- purple two-sphere patrol -----
+      function createPurplePatrol(platform) {
+        const group = new THREE.Group();
+        const baseColor = 0x8b4fd9;
+
+        const back = new THREE.Mesh(
+          new THREE.SphereGeometry(0.32, 24, 18),
+          toonMat(baseColor),
+        );
+        back.position.z = 0.42;
+        back.castShadow = true;
+        addOutline(back, 1.08);
+        group.add(back);
+
+        const front = new THREE.Mesh(
+          new THREE.SphereGeometry(0.4, 24, 18),
+          toonMat(baseColor),
+        );
+        front.position.z = -0.35;
+        front.castShadow = true;
+        addOutline(front, 1.08);
+        group.add(front);
+
+        const rod = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.09, 0.09, 0.75, 12),
+          toonMat(0x5f3aa0),
+        );
+        rod.rotation.x = Math.PI / 2;
+        rod.position.z = 0.03;
+        group.add(rod);
+
+        const eyeW = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const pupM = new THREE.MeshBasicMaterial({ color: 0x0a0a14 });
+        const eyeL = new THREE.Mesh(
+          new THREE.SphereGeometry(0.1, 14, 10),
+          eyeW,
+        );
+        const eyeR = new THREE.Mesh(
+          new THREE.SphereGeometry(0.1, 14, 10),
+          eyeW,
+        );
+        eyeL.position.set(-0.14, 0.1, -0.66);
+        eyeR.position.set(0.14, 0.1, -0.66);
+        const pupL = new THREE.Mesh(
+          new THREE.SphereGeometry(0.05, 10, 8),
+          pupM,
+        );
+        const pupR = new THREE.Mesh(
+          new THREE.SphereGeometry(0.05, 10, 8),
+          pupM,
+        );
+        pupL.position.set(-0.14, 0.1, -0.73);
+        pupR.position.set(0.14, 0.1, -0.73);
+        group.add(eyeL, eyeR, pupL, pupR);
+
+        const enemy = {
+          type: "purple",
+          group,
+          platform,
+          baseColor,
+          angle: Math.random() * Math.PI * 2,
+          radius: Math.max(0.6, platform.userData.radius * 0.55),
+          angularSpeed: 0.8 + Math.random() * 0.4,
+          dir: Math.random() < 0.5 ? 1 : -1,
+          chasing: false,
+          bodies: [back, front],
+        };
+        enemyGroup.add(group);
+        enemies.push(enemy);
+        return enemy;
+      }
+
+      function updatePurple(e, dt) {
+        const plat = e.platform;
+        if (!plat.userData.active || !plat.visible) {
+          e.group.visible = false;
+          return;
+        }
+        e.group.visible = true;
+
+        const pcx = plat.position.x,
+          pcz = plat.position.z;
+        const pcy = plat.position.y + plat.userData.halfH;
+
+        // is the player on (or near) this platform?
+        const dxp = player.pos.x - pcx;
+        const dzp = player.pos.z - pcz;
+        const playerOnPlat =
+          Math.abs(player.pos.y - (pcy + playerRadius)) < 1.6 &&
+          dxp * dxp + dzp * dzp < (plat.userData.radius + 0.8) ** 2;
+
+        const ex = pcx + Math.cos(e.angle) * e.radius;
+        const ez = pcz + Math.sin(e.angle) * e.radius;
+        const toPX = player.pos.x - ex;
+        const toPZ = player.pos.z - ez;
+        const dp = Math.hypot(toPX, toPZ);
+
+        e.chasing = playerOnPlat && dp < 5;
+
+        let newX, newZ;
+        if (e.chasing) {
+          const nx = toPX / (dp || 1);
+          const nz = toPZ / (dp || 1);
+          const speed = 6.5;
+          newX = ex + nx * speed * dt;
+          newZ = ez + nz * speed * dt;
+        } else {
+          e.angle += e.angularSpeed * dt * e.dir;
+          newX = pcx + Math.cos(e.angle) * e.radius;
+          newZ = pcz + Math.sin(e.angle) * e.radius;
+        }
+
+        // keep enemy on the platform surface
+        const cx = newX - pcx,
+          cz = newZ - pcz;
+        const d = Math.hypot(cx, cz);
+        const maxR = Math.max(0.3, plat.userData.radius - 0.4);
+        if (d > maxR) {
+          newX = pcx + (cx / (d || 1)) * maxR;
+          newZ = pcz + (cz / (d || 1)) * maxR;
+        }
+        e.angle = Math.atan2(newZ - pcz, newX - pcx);
+        e.radius = Math.min(
+          maxR,
+          Math.max(0.3, Math.hypot(newX - pcx, newZ - pcz)),
+        );
+
+        e.group.position.set(
+          newX,
+          pcy + 0.42 + Math.sin(performance.now() * 0.007) * 0.06,
+          newZ,
+        );
+
+        // face the direction of motion
+        let faceX, faceZ;
+        if (e.chasing) {
+          faceX = toPX;
+          faceZ = toPZ;
+        } else {
+          faceX = -Math.sin(e.angle) * e.dir;
+          faceZ = Math.cos(e.angle) * e.dir;
+        }
+        e.group.rotation.y = Math.atan2(faceX, faceZ);
+
+        // lerp color between purple and red
+        const target = new THREE.Color(e.chasing ? 0xff3030 : e.baseColor);
+        for (const b of e.bodies)
+          b.material.color.lerp(target, Math.min(1, dt * 6));
+
+        // bump the player if in contact
+        if (playerOnPlat && dp < 0.85 + playerRadius) {
+          const nx = toPX / (dp || 1);
+          const nz = toPZ / (dp || 1);
+          const force = e.chasing ? 22 : 10;
+          player.vel.x += nx * force;
+          player.vel.z += nz * force;
+          if (player.onGround) player.vel.y = Math.max(player.vel.y, 7);
+        }
+      }
+
+      // ----- yellow jumping pyramid -----
+      function createPyramid(platform) {
+        const group = new THREE.Group();
+        const geom = makePyramidGeometry(0.6, 1.2);
+
+        const mat = new THREE.MeshToonMaterial({
+          color: 0xf4c430,
+          map: madFaceTexture,
+          gradientMap,
+        });
+        const body = new THREE.Mesh(geom, mat);
+        body.castShadow = true;
+        group.add(body);
+
+        const outline = new THREE.Mesh(
+          geom,
+          new THREE.MeshBasicMaterial({
+            color: 0x0a0a14,
+            side: THREE.BackSide,
+          }),
+        );
+        outline.scale.setScalar(1.05);
+        group.add(outline);
+
+        const enemy = {
+          type: "pyramid",
+          group,
+          body,
+          platform,
+          baseColor: 0xf4c430,
+          phase: "idle",
+          phaseT: 0.8 + Math.random() * 1.2,
+          x: platform.position.x,
+          z: platform.position.z,
+          vy: 0,
+          vx: 0,
+          vz: 0,
+          smashed: false,
+        };
+        enemyGroup.add(group);
+        enemies.push(enemy);
+        return enemy;
+      }
+
+      function updatePyramid(e, dt) {
+        const plat = e.platform;
+        if (!plat.userData.active || !plat.visible) {
+          e.group.visible = false;
+          return;
+        }
+        e.group.visible = true;
+
+        const topY =
+          plat.position.y +
+          (plat.userData.shape === "box"
+            ? plat.userData.halfSize.y
+            : plat.userData.halfH);
+        const baseY = topY + 0.6; // group center when resting
+        const dxp = player.pos.x - e.x;
+        const dzp = player.pos.z - e.z;
+        const dist = Math.hypot(dxp, dzp);
+        const near = dist < 4.2 && Math.abs(player.pos.y - topY) < 4;
+
+        const target =
+          e.phase === "charging" || e.phase === "airborne"
+            ? 0xff3030
+            : e.baseColor;
+        e.body.material.color.lerp(
+          new THREE.Color(target),
+          Math.min(1, dt * 6),
+        );
+
+        if (e.phase === "idle") {
+          e.phaseT -= dt;
+          const bob = Math.abs(Math.sin(performance.now() * 0.005)) * 0.18;
+          e.group.position.set(e.x, baseY + bob, e.z);
+          e.group.scale.set(1, 1, 1);
+          e.group.rotation.y += dt * 0.6;
+
+          if (near) {
+            e.phase = "charging";
+            e.phaseT = 0.45;
+            spawnSmokePuff(e.group.position.clone().setY(topY + 0.15), 14);
+          } else if (e.phaseT <= 0) {
+            // small idle hop in place
+            e.phase = "airborne";
+            e.vy = 7;
+            e.vx = 0;
+            e.vz = 0;
+            e.phaseT = 0;
+          }
+        } else if (e.phase === "charging") {
+          e.phaseT -= dt;
+          const shake = (Math.random() - 0.5) * 0.18;
+          e.group.position.set(e.x + shake, baseY - 0.1, e.z + shake);
+          e.group.scale.set(1.15, 0.72, 1.15);
+
+          if (e.phaseT <= 0) {
+            e.phase = "airborne";
+            e.vy = 17;
+            const nx = dxp / (dist || 1);
+            const nz = dzp / (dist || 1);
+            const leap = Math.min(6.5, dist * 3.2);
+            e.vx = nx * leap;
+            e.vz = nz * leap;
+            e.group.scale.set(1, 1, 1);
+            spawnSmokePuff(e.group.position.clone().setY(topY + 0.1), 10);
+          }
+        } else if (e.phase === "airborne") {
+          e.vy += GRAVITY * dt;
+          e.x += e.vx * dt;
+          e.z += e.vz * dt;
+
+          // don't drift off the platform edge
+          const dx2 = e.x - plat.position.x,
+            dz2 = e.z - plat.position.z;
+          const plR =
+            plat.userData.shape === "box"
+              ? Math.min(plat.userData.halfSize.x, plat.userData.halfSize.z) -
+                0.1
+              : plat.userData.radius - 0.3;
+          const d2 = Math.hypot(dx2, dz2);
+          if (d2 > plR) {
+            e.x = plat.position.x + (dx2 / (d2 || 1)) * plR;
+            e.z = plat.position.z + (dz2 / (d2 || 1)) * plR;
+            e.vx *= 0.5;
+            e.vz *= 0.5;
+          }
+
+          const curY = e.group.position.y + e.vy * dt;
+          e.group.position.set(e.x, Math.max(baseY, curY), e.z);
+          e.group.rotation.x += dt * 4;
+          e.group.rotation.z += dt * 3;
+
+          // smash player when coming down on them
+          if (!e.smashed) {
+            const horiz = Math.hypot(e.x - player.pos.x, e.z - player.pos.z);
+            const vert = e.group.position.y - player.pos.y;
+            if (
+              horiz < 0.75 + playerRadius * 0.7 &&
+              vert > -0.2 &&
+              vert < 1.4 &&
+              e.vy < 4
+            ) {
+              e.smashed = true;
+              pyramidSmashedPlayer = true;
+            }
+          }
+
+          if (curY <= baseY && e.vy <= 0) {
+            e.group.position.y = baseY;
+            e.vy = 0;
+            e.vx = 0;
+            e.vz = 0;
+            e.phase = "idle";
+            e.phaseT = near ? 0.9 : 1.6 + Math.random() * 1.2;
+            e.group.rotation.set(0, e.group.rotation.y, 0);
+            spawnSmokePuff(e.group.position.clone().setY(topY + 0.1), 10);
+          }
+        }
+      }
+
+      // ----- grey rolling dice -----
+      function createDice(platform) {
+        const size = 0.6;
+        const group = new THREE.Group();
+        const body = new THREE.Mesh(
+          new THREE.BoxGeometry(size, size, size),
+          toonMat(0xa0a4ac),
+        );
+        body.castShadow = true;
+        addOutline(body, 1.05);
+        group.add(body);
+
+        const enemy = {
+          type: "dice",
+          group,
+          body,
+          platform,
+          size,
+          x: platform.position.x + (Math.random() - 0.5) * 1.2,
+          z: platform.position.z + (Math.random() - 0.5) * 1.2,
+          vx: 0,
+          vz: 0,
+          vy: 0,
+          phase: "idle",
+          phaseT: 0.4 + Math.random() * 0.9,
+          spin: new THREE.Vector3(),
+        };
+        enemyGroup.add(group);
+        enemies.push(enemy);
+        return enemy;
+      }
+
+      function updateDice(e, dt) {
+        const plat = e.platform;
+        if (!plat.userData.active || !plat.visible) {
+          e.group.visible = false;
+          return;
+        }
+        e.group.visible = true;
+
+        const topY =
+          plat.position.y +
+          (plat.userData.shape === "box"
+            ? plat.userData.halfSize.y
+            : plat.userData.halfH);
+        const restY = topY + e.size / 2;
+
+        if (e.phase === "idle") {
+          e.phaseT -= dt;
+          e.group.position.set(e.x, restY, e.z);
+          if (e.phaseT <= 0) {
+            const theta = Math.random() * Math.PI * 2;
+            const power = 3.5 + Math.random() * 3.2;
+            e.vx = Math.cos(theta) * power;
+            e.vz = Math.sin(theta) * power;
+            e.vy = 6 + Math.random() * 4;
+            e.spin.set(
+              (Math.random() - 0.5) * 10,
+              (Math.random() - 0.5) * 6,
+              (Math.random() - 0.5) * 10,
+            );
+            e.phase = "airborne";
+          }
+        } else if (e.phase === "airborne") {
+          e.vy += GRAVITY * dt;
+          e.x += e.vx * dt;
+          e.z += e.vz * dt;
+
+          // bounce off platform edges so it doesn't leave the platform
+          const dxp = e.x - plat.position.x;
+          const dzp = e.z - plat.position.z;
+          const plR =
+            plat.userData.shape === "box"
+              ? Math.min(plat.userData.halfSize.x, plat.userData.halfSize.z) -
+                e.size
+              : plat.userData.radius - e.size;
+          const d2 = Math.hypot(dxp, dzp);
+          if (d2 > plR) {
+            const nx = dxp / (d2 || 1),
+              nz = dzp / (d2 || 1);
+            e.x = plat.position.x + nx * plR;
+            e.z = plat.position.z + nz * plR;
+            const dot = e.vx * nx + e.vz * nz;
+            e.vx = (e.vx - 2 * dot * nx) * 0.6;
+            e.vz = (e.vz - 2 * dot * nz) * 0.6;
+          }
+
+          const curY = e.group.position.y + e.vy * dt;
+          e.group.position.set(e.x, Math.max(restY, curY), e.z);
+          e.group.rotation.x += e.spin.x * dt;
+          e.group.rotation.y += e.spin.y * dt;
+          e.group.rotation.z += e.spin.z * dt;
+
+          if (curY <= restY && e.vy <= 0) {
+            e.group.position.y = restY;
+            e.vy = 0;
+            e.vx = 0;
+            e.vz = 0;
+            e.spin.set(0, 0, 0);
+            e.phase = "idle";
+            e.phaseT = 0.3 + Math.random() * 1.1;
+          }
+        }
+      }
+
+      function updateEnemies(dt) {
+        for (const e of enemies) {
+          if (e.type === "purple") updatePurple(e, dt);
+          else if (e.type === "pyramid") updatePyramid(e, dt);
+          else if (e.type === "dice") updateDice(e, dt);
+        }
+        updateSmoke(dt);
+        if (pyramidSmashedPlayer) {
+          pyramidSmashedPlayer = false;
+          resetGame();
+        }
+      }
+
+      function clearEnemies() {
+        for (const e of enemies) {
+          enemyGroup.remove(e.group);
+          e.group.traverse((o) => {
+            if (o.geometry) o.geometry.dispose?.();
+            if (o.material) o.material.dispose?.();
+          });
+        }
+        enemies.length = 0;
+        for (const s of smokeParticles) {
+          scene.remove(s);
+          s.geometry.dispose();
+          s.material.dispose();
+        }
+        smokeParticles.length = 0;
+        pyramidSmashedPlayer = false;
+      }
+
+      // ---------- level data — sourced from data/levels/0.json ----------
+      // Convert JSON hex string ("#rrggbb") to number for Three.js
+      function hexStr(s) { return parseInt(s.replace('#', ''), 16); }
+      const LEVEL_DATA = levelJson.platforms.map(p =>
+        Object.assign({}, p, { color: hexStr(p.color) })
+      );
+
+      function populateEnemies() {
+        for (let i = 0; i < LEVEL_DATA.length; i++) {
+          const npcs = levelJson.platforms[i]?.npcs ?? [];
+          if (!npcs.length) continue;
+          const plat = platforms[i];
+          for (const npc of npcs) {
+            if (npc.type === "purple") createPurplePatrol(plat);
+            else if (npc.type === "pyramid") createPyramid(plat);
+            else if (npc.type === "dice") createDice(plat);
+          }
+        }
+      }
+
+      // ---------- level layout ----------
+      let endPlatform = null;
+
+      function getSpawnPos() {
+        const idx = levelJson.startPlatform ?? null;
+        if (idx != null && platforms[idx]) {
+          const p = platforms[idx];
+          const topY =
+            p.position.y + (p.userData.halfH ?? p.userData.halfSize?.y ?? 0.5);
+          return new THREE.Vector3(
+            p.position.x,
+            topY + playerRadius + 0.5,
+            p.position.z,
+          );
+        }
+        return new THREE.Vector3(0, 3, 0);
+      }
+
+      function buildLevel() {
+        for (const p of platforms) platformGroup.remove(p);
+        platforms.length = 0;
+
+        for (const cfg of LEVEL_DATA) {
+          addPlatform(cfg);
+        }
+        endPlatform = platforms[platforms.length - 1];
+
+        clearEnemies();
+        populateEnemies();
+      }
+      buildLevel();
+
+      // ---------- player ----------
+      const playerRadius = 0.8;
+      const playerGroup = new THREE.Group();
+      scene.add(playerGroup);
+
+      const ball = new THREE.Mesh(
+        new THREE.SphereGeometry(playerRadius, 48, 32),
+        toonMat(0xff4ad6),
+      );
+      ball.castShadow = true;
+      playerGroup.add(ball);
+
+      // outline
+      const ballOutline = new THREE.Mesh(
+        new THREE.SphereGeometry(playerRadius, 48, 32),
+        new THREE.MeshBasicMaterial({ color: 0x0a0a14, side: THREE.BackSide }),
+      );
+      ballOutline.scale.setScalar(1.06);
+      playerGroup.add(ballOutline);
+
+      // sparkle/ring under ball for style
+      const ringGeom = new THREE.RingGeometry(
+        playerRadius * 1.1,
+        playerRadius * 1.25,
+        32,
+      );
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0xff9ae6,
+        transparent: true,
+        opacity: 0.35,
+        side: THREE.DoubleSide,
+      });
+      const ring = new THREE.Mesh(ringGeom, ringMat);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = -playerRadius * 0.95;
+      playerGroup.add(ring);
+
+      const player = {
+        pos: getSpawnPos(),
+        vel: new THREE.Vector3(),
+        onGround: false,
+        squash: 1.0,
+        squashTarget: 1.0,
+      };
+
+      // ---------- camera state ----------
+      let cameraAngle = 0; // radians around Y
+      const camDist = 9;
+      const camHeight = 5;
+
+      // ---------- input ----------
+      const keys = {};
+      window.addEventListener("keydown", (e) => {
+        keys[e.code] = true;
+        if (e.code === "KeyR") resetGame();
+        if (
+          ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(
+            e.code,
+          )
+        )
+          e.preventDefault();
+      });
+      window.addEventListener("keyup", (e) => {
+        keys[e.code] = false;
+      });
+
+      // ---------- physics ----------
+      const GRAVITY = -34;
+      const MOVE_SPEED = 10;
+      const JUMP_V = 13;
+      const BOUNCE_MIN_V = 4.5; // small auto-bounce on landing
+      const clock = new THREE.Clock();
+
+      let won = false;
+
+      function resetGame() {
+        const spawn = getSpawnPos();
+        player.pos.copy(spawn);
+        player.vel.set(0, 0, 0);
+        player.onGround = false;
+        player.squash = 1;
+        player.squashTarget = 1;
+        cameraAngle = 0;
+        won = false;
+        document.getElementById("win").classList.remove("show");
+
+        for (const p of platforms) {
+          p.userData.active = true;
+          p.userData.vanishing = false;
+          p.userData.vanishTime = 0;
+          p.visible = true;
+          p.position.y = p.userData.baseY;
+          p.scale.setScalar(1);
+          if (p.userData.type === "red") {
+            p.userData.timer = null;
+            p.userData.falling = false;
+            p.userData.fallVel = 0;
+            p.material.transparent = false;
+            p.material.opacity = 1;
+            p.material.color.setHex(p.userData.baseColor);
+          } else if (p.userData.type !== "orange") {
+            p.material.transparent = false;
+            p.material.opacity = 1;
+            p.material.color.setHex(p.userData.baseColor);
+          }
+        }
+        ball.rotation.set(0, 0, 0);
+
+        clearEnemies();
+        populateEnemies();
+      }
+
+      // ---------- update loop ----------
+      function update(dt) {
+        // camera orbit
+        const orbitSpeed = 2.2;
+        if (keys["ArrowLeft"]) cameraAngle += orbitSpeed * dt;
+        if (keys["ArrowRight"]) cameraAngle -= orbitSpeed * dt;
+
+        // forward in world space based on camera (away from camera)
+        const fx = -Math.sin(cameraAngle);
+        const fz = -Math.cos(cameraAngle);
+
+        let mx = 0,
+          mz = 0;
+        if (!won) {
+          if (keys["ArrowUp"]) {
+            mx += fx;
+            mz += fz;
+          }
+          if (keys["ArrowDown"]) {
+            mx -= fx;
+            mz -= fz;
+          }
+        }
+        const mag = Math.hypot(mx, mz);
+        if (mag > 0) {
+          mx /= mag;
+          mz /= mag;
+        }
+
+        // accelerate toward target horizontal velocity
+        const targetVx = mx * MOVE_SPEED;
+        const targetVz = mz * MOVE_SPEED;
+        const accel = player.onGround ? 16 : 9;
+        player.vel.x += (targetVx - player.vel.x) * Math.min(1, accel * dt);
+        player.vel.z += (targetVz - player.vel.z) * Math.min(1, accel * dt);
+
+        // jump
+        if (!won && keys["Space"] && player.onGround) {
+          player.vel.y = JUMP_V;
+          player.onGround = false;
+          player.squashTarget = 1.35; // stretch up
+        }
+
+        // gravity
+        player.vel.y += GRAVITY * dt;
+
+        // integrate
+        player.pos.addScaledVector(player.vel, dt);
+
+        // ---- update platforms & collisions ----
+        let landed = false;
+
+        for (const p of platforms) {
+          // yellow spin
+          if (p.userData.type === "yellow" && p.userData.active) {
+            p.rotation.y += p.userData.spin * dt;
+          }
+
+          // red countdown
+          if (
+            p.userData.type === "red" &&
+            p.userData.timer !== null &&
+            !p.userData.falling
+          ) {
+            p.userData.timer += dt;
+            if (p.userData.timer > 5) {
+              p.material.transparent = true;
+              const remaining = Math.max(0, 10 - p.userData.timer);
+              // flash faster as it approaches 0
+              const flashHz = 4 + (1 - remaining / 5) * 14;
+              const f = 0.5 + 0.5 * Math.sin(p.userData.timer * flashHz);
+              p.material.opacity = 0.35 + f * 0.65;
+              // tint toward bright red/white
+              const base = new THREE.Color(p.userData.baseColor);
+              const bright = new THREE.Color(0xffffff);
+              p.material.color.copy(base).lerp(bright, 0.3 * f);
+            }
+            if (p.userData.timer >= 10) {
+              p.userData.falling = true;
+              p.userData.active = false;
+            }
+          }
+          if (p.userData.falling) {
+            p.userData.fallVel += GRAVITY * dt;
+            p.position.y += p.userData.fallVel * dt;
+            if (p.position.y < -80) p.visible = false;
+          }
+
+          if (!p.userData.active) continue;
+
+          // collision (landing on top)
+          const topY =
+            p.position.y +
+            (p.userData.shape === "box"
+              ? p.userData.halfSize.y
+              : p.userData.halfH);
+          let overFoot = false;
+          const dx = player.pos.x - p.position.x;
+          const dz = player.pos.z - p.position.z;
+          if (p.userData.shape === "box") {
+            const pad = playerRadius * 0.55;
+            if (
+              Math.abs(dx) < p.userData.halfSize.x + pad &&
+              Math.abs(dz) < p.userData.halfSize.z + pad
+            )
+              overFoot = true;
+          } else {
+            const rr = p.userData.radius + playerRadius * 0.4;
+            if (dx * dx + dz * dz < rr * rr) overFoot = true;
+          }
+
+          if (overFoot) {
+            const feetY = player.pos.y - playerRadius;
+            if (
+              feetY <= topY + 0.05 &&
+              feetY >= topY - 1.8 &&
+              player.vel.y <= 0.5
+            ) {
+              // landing
+              player.pos.y = topY + playerRadius;
+              const impact = -player.vel.y;
+              if (impact > 9) {
+                // bouncy auto-bounce when landing hard
+                player.vel.y = BOUNCE_MIN_V + Math.min(6, impact * 0.22);
+                player.onGround = false;
+                player.squashTarget = 0.65;
+              } else {
+                player.vel.y = 0;
+                player.onGround = true;
+                player.squashTarget = 0.82; // slight squash when settling
+              }
+              landed = true;
+
+              // trigger platform effects
+              if (p.userData.type === "red" && p.userData.timer === null) {
+                p.userData.timer = 0;
+              }
+              if (p.userData.type === "orange" && !won) {
+                triggerWin(p);
+              }
+            }
+          }
+        }
+
+        if (!landed && player.vel.y < 0) player.onGround = false;
+
+        // fall-out reset
+        if (player.pos.y < -40) resetGame();
+
+        // squash spring
+        player.squashTarget +=
+          (1.0 - player.squashTarget) * Math.min(1, dt * 6);
+        player.squash +=
+          (player.squashTarget - player.squash) * Math.min(1, dt * 14);
+        const sq = player.squash;
+        playerGroup.scale.set(1 / Math.sqrt(sq), sq, 1 / Math.sqrt(sq));
+
+        // roll the ball based on horizontal velocity
+        const hSpeed = Math.hypot(player.vel.x, player.vel.z);
+        if (hSpeed > 0.05) {
+          const axis = new THREE.Vector3(
+            player.vel.z,
+            0,
+            -player.vel.x,
+          ).normalize();
+          const angle = (hSpeed * dt) / playerRadius;
+          ball.rotateOnWorldAxis(axis, angle);
+        }
+
+        // place playerGroup
+        playerGroup.position.copy(player.pos);
+
+        // camera follows & orbits
+        const camOffset = new THREE.Vector3(
+          Math.sin(cameraAngle) * camDist,
+          camHeight,
+          Math.cos(cameraAngle) * camDist,
+        );
+        camera.position.copy(player.pos).add(camOffset);
+        camera.lookAt(player.pos.x, player.pos.y + 1.2, player.pos.z);
+      }
+
+      // ---------- win sequence ----------
+      let winTimer = 0;
+      function triggerWin(finalP) {
+        won = true;
+        winTimer = 0;
+        document.getElementById("win").classList.add("show");
+        // everything except the final platform vanishes (with a little pop)
+        for (const p of platforms) {
+          if (p === finalP) continue;
+          p.userData.active = false;
+          p.userData.vanishing = true;
+          p.userData.vanishTime = 0;
+          p.material.transparent = true;
+        }
+      }
+
+      function updateVanish(dt) {
+        for (const p of platforms) {
+          if (!p.userData.vanishing) continue;
+          p.userData.vanishTime += dt;
+          const t = Math.min(1, p.userData.vanishTime / 0.7);
+          p.scale.setScalar(1 + t * 0.3);
+          p.material.opacity = 1 - t;
+          if (t >= 1) p.visible = false;
+        }
+      }
+
+      // ---------- animate ----------
+      function animate() {
+        const dt = Math.min(0.033, clock.getDelta());
+        update(dt);
+        updateEnemies(dt);
+        updateVanish(dt);
+
+        // subtle nebula rotation
+        nebula.rotation.y += dt * 0.01;
+
+        renderer.render(scene, camera);
+        requestAnimationFrame(animate);
+      }
+      animate();
+
+      // ---------- resize ----------
+      window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    </script>
+  </body>
+</html>
