@@ -75,6 +75,33 @@
           transform: scale(1.06);
         }
       }
+      #dead {
+        position: absolute;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        text-align: center;
+        background: rgba(200, 0, 0, 0.82);
+        pointer-events: none;
+        transition: opacity 0.18s ease;
+      }
+      #dead.show {
+        display: flex;
+      }
+      #dead h1 {
+        font-size: 56px;
+        margin: 0;
+        color: #fff;
+        text-shadow: 0 0 24px rgba(255, 0, 0, 0.9);
+        animation: pulse 1s ease-in-out infinite;
+      }
+      #dead p {
+        font-size: 17px;
+        opacity: 0.9;
+        margin-top: 10px;
+      }
     </style>
   </head>
   <body>
@@ -88,6 +115,10 @@
     <div id="win">
       <h1>YOU MADE IT!</h1>
       <p>Press R to play again</p>
+    </div>
+    <div id="dead">
+      <h1>YOU DIED</h1>
+      <p>Press R to try again</p>
     </div>
 
     <script type="importmap">
@@ -738,11 +769,15 @@
 
       // ----- grey rolling dice -----
       function createDice(platform) {
-        const size = 0.6;
+        const size = 3.2; // 2× player diameter (playerRadius 0.8 → diameter 1.6 × 2)
         const group = new THREE.Group();
         const body = new THREE.Mesh(
           new THREE.BoxGeometry(size, size, size),
-          toonMat(0xa0a4ac),
+          new THREE.MeshToonMaterial({
+            color: 0xa0a4ac,
+            map: madFaceTexture,
+            gradientMap,
+          }),
         );
         body.castShadow = true;
         addOutline(body, 1.05);
@@ -754,14 +789,22 @@
           body,
           platform,
           size,
-          x: platform.position.x + (Math.random() - 0.5) * 1.2,
-          z: platform.position.z + (Math.random() - 0.5) * 1.2,
+          baseColor: 0xa0a4ac,
+          hp: 2, // rage-phase hits to kill
+          x: platform.position.x,
+          z: platform.position.z,
           vx: 0,
           vz: 0,
           vy: 0,
-          phase: "idle",
-          phaseT: 0.4 + Math.random() * 0.9,
-          spin: new THREE.Vector3(),
+          hopT: 0.5 + Math.random() * 0.4,
+          hitCooldown: 0,
+          dormant: true, // asleep until player steps on this platform
+          wasAirborne: false, // was the box off the ground last frame?
+          hopContactThisAir: false, // did the box touch the player this hop?
+          missCount: 0,
+          missesForRage: 3,
+          rageT: 0,
+          rageDuration: 5,
         };
         enemyGroup.add(group);
         enemies.push(enemy);
@@ -775,74 +818,252 @@
           return;
         }
         e.group.visible = true;
+        if (e.hitCooldown > 0) e.hitCooldown -= dt;
 
         const topY =
           plat.position.y +
           (plat.userData.shape === "box"
             ? plat.userData.halfSize.y
             : plat.userData.halfH);
-        const restY = topY + e.size / 2;
+        const sc = e.group.scale.x;
+        const halfS = Math.max(0.01, (e.size / 2) * sc);
+        const restY = topY + halfS;
 
-        if (e.phase === "idle") {
-          e.phaseT -= dt;
+        // --- dormant: sit still until player steps onto this platform ---
+        if (e.dormant) {
           e.group.position.set(e.x, restY, e.z);
-          if (e.phaseT <= 0) {
-            const theta = Math.random() * Math.PI * 2;
-            const power = 3.5 + Math.random() * 3.2;
-            e.vx = Math.cos(theta) * power;
-            e.vz = Math.sin(theta) * power;
-            e.vy = 6 + Math.random() * 4;
-            e.spin.set(
-              (Math.random() - 0.5) * 10,
-              (Math.random() - 0.5) * 6,
-              (Math.random() - 0.5) * 10,
-            );
-            e.phase = "airborne";
+          const pdx = player.pos.x - plat.position.x;
+          const pdz = player.pos.z - plat.position.z;
+          const onPlat =
+            player.onGround &&
+            Math.abs(player.pos.y - (topY + playerRadius)) < 1.2 &&
+            (plat.userData.shape === "box"
+              ? Math.abs(pdx) < plat.userData.halfSize.x + 0.6 &&
+                Math.abs(pdz) < plat.userData.halfSize.z + 0.6
+              : pdx * pdx + pdz * pdz < (plat.userData.radius + 0.6) ** 2);
+          if (onPlat) {
+            e.dormant = false;
+            e.hopT = 0.8; // brief pause before first charge
           }
-        } else if (e.phase === "airborne") {
-          e.vy += GRAVITY * dt;
-          e.x += e.vx * dt;
-          e.z += e.vz * dt;
+          return;
+        }
 
-          // bounce off platform edges so it doesn't leave the platform
-          const dxp = e.x - plat.position.x;
-          const dzp = e.z - plat.position.z;
-          const plR =
-            plat.userData.shape === "box"
-              ? Math.min(plat.userData.halfSize.x, plat.userData.halfSize.z) -
-                e.size
-              : plat.userData.radius - e.size;
-          const d2 = Math.hypot(dxp, dzp);
-          if (d2 > plR) {
-            const nx = dxp / (d2 || 1),
-              nz = dzp / (d2 || 1);
+        // --- rage colour flash ---
+        const inRage = e.rageT > 0;
+        if (inRage) {
+          e.rageT -= dt;
+          const flashT = 0.5 + 0.5 * Math.sin(performance.now() * 0.02);
+          e.body.material.color.setHex(e.baseColor);
+          e.body.material.color.lerp(new THREE.Color(0xff2020), flashT);
+        } else {
+          e.body.material.color.setHex(e.baseColor);
+        }
+
+        // --- gravity ---
+        e.vy += GRAVITY * dt;
+
+        // --- grounded detection + hop + miss counting ---
+        const grounded = e.group.position.y <= restY + 0.1;
+        if (grounded) {
+          if (e.wasAirborne) {
+            // just landed — evaluate whether this hop was a miss
+            spawnSmokePuff(new THREE.Vector3(e.x, topY + 0.1, e.z), 4);
+            if (!e.hopContactThisAir) {
+              e.missCount++;
+              if (e.missCount >= e.missesForRage && e.rageT <= 0) {
+                e.rageT = e.rageDuration;
+                e.missCount = 0;
+              }
+            }
+            e.wasAirborne = false;
+          }
+          e.hopT -= dt;
+          if (e.hopT <= 0) {
+            e.vy = inRage ? 18 : 14;
+            e.hopT = inRage
+              ? 0.35 + Math.random() * 0.25
+              : 0.6 + Math.random() * 0.3;
+            e.hopContactThisAir = false;
+            spawnSmokePuff(new THREE.Vector3(e.x, topY + 0.1, e.z), 5);
+          }
+        } else {
+          e.wasAirborne = true;
+        }
+
+        // --- integrate Y ---
+        const nextY = e.group.position.y + e.vy * dt;
+        if (nextY <= restY && e.vy <= 0) {
+          e.group.position.y = restY;
+          e.vy = 0;
+        } else {
+          e.group.position.y = nextY;
+        }
+
+        // --- box drops onto player (crush from above) ---
+        if (e.vy < -1 && e.group.position.y > restY + 0.2) {
+          const boxBottom = e.group.position.y - halfS;
+          const playerTop = player.pos.y + playerRadius;
+          const horiz = Math.hypot(player.pos.x - e.x, player.pos.z - e.z);
+          if (
+            horiz < halfS + playerRadius * 0.8 &&
+            boxBottom <= playerTop + 0.35 &&
+            boxBottom >= playerTop - 0.8
+          ) {
+            e.hopContactThisAir = true;
+            triggerDeath();
+            return;
+          }
+        }
+
+        // --- player stomps top of dice ---
+        if (player.vel.y < 0 && !player.onGround) {
+          const feetY = player.pos.y - playerRadius;
+          const diceTopY = e.group.position.y + halfS;
+          const horiz = Math.hypot(player.pos.x - e.x, player.pos.z - e.z);
+          if (
+            horiz < halfS + playerRadius * 0.7 &&
+            feetY >= diceTopY - 0.4 &&
+            feetY <= diceTopY + 0.6
+          ) {
+            // always bounce player off the top
+            player.vel.y = JUMP_V * 0.8;
+            player.onGround = false;
+            player.squashTarget = 1.3;
+            if (inRage) {
+              // only kill during rage
+              e.hopContactThisAir = true;
+              defeatEnemy(e);
+              return;
+            }
+          }
+        }
+
+        // --- chase: accelerate toward player ---
+        const dxp = player.pos.x - e.x;
+        const dzp = player.pos.z - e.z;
+        const dist = Math.hypot(dxp, dzp);
+        const maxSpeed = inRage ? 26 : 6;
+        const accelF = inRage ? 44 : 16;
+        if (dist > 0.1) {
+          e.vx += (dxp / dist) * accelF * dt;
+          e.vz += (dzp / dist) * accelF * dt;
+          const hs = Math.hypot(e.vx, e.vz);
+          if (hs > maxSpeed) {
+            e.vx = (e.vx / hs) * maxSpeed;
+            e.vz = (e.vz / hs) * maxSpeed;
+          }
+        }
+
+        // --- rolling spin from horizontal movement ---
+        const hs = Math.hypot(e.vx, e.vz);
+        if (hs > 0.05) {
+          const rollAxis = new THREE.Vector3(e.vz, 0, -e.vx).normalize();
+          e.group.rotateOnWorldAxis(rollAxis, (hs * dt) / halfS);
+        }
+
+        // --- integrate XZ ---
+        e.x += e.vx * dt;
+        e.z += e.vz * dt;
+
+        // --- clamp to platform bounds ---
+        if (plat.userData.shape === "box") {
+          const maxX = Math.max(0, plat.userData.halfSize.x - halfS);
+          const maxZ = Math.max(0, plat.userData.halfSize.z - halfS);
+          const relX = e.x - plat.position.x;
+          const relZ = e.z - plat.position.z;
+          if (Math.abs(relX) > maxX) {
+            e.x = plat.position.x + Math.sign(relX) * maxX;
+            e.vx *= -0.6;
+          }
+          if (Math.abs(relZ) > maxZ) {
+            e.z = plat.position.z + Math.sign(relZ) * maxZ;
+            e.vz *= -0.6;
+          }
+        } else {
+          const plR = Math.max(0, (plat.userData.radius || 0) - halfS);
+          const d = Math.hypot(e.x - plat.position.x, e.z - plat.position.z);
+          if (d > plR) {
+            const nx = (e.x - plat.position.x) / (d || 1);
+            const nz = (e.z - plat.position.z) / (d || 1);
             e.x = plat.position.x + nx * plR;
             e.z = plat.position.z + nz * plR;
             const dot = e.vx * nx + e.vz * nz;
             e.vx = (e.vx - 2 * dot * nx) * 0.6;
             e.vz = (e.vz - 2 * dot * nz) * 0.6;
           }
+        }
 
-          const curY = e.group.position.y + e.vy * dt;
-          e.group.position.set(e.x, Math.max(restY, curY), e.z);
-          e.group.rotation.x += e.spin.x * dt;
-          e.group.rotation.y += e.spin.y * dt;
-          e.group.rotation.z += e.spin.z * dt;
+        e.group.position.x = e.x;
+        e.group.position.z = e.z;
 
-          if (curY <= restY && e.vy <= 0) {
-            e.group.position.y = restY;
-            e.vy = 0;
-            e.vx = 0;
-            e.vz = 0;
-            e.spin.set(0, 0, 0);
-            e.phase = "idle";
-            e.phaseT = 0.3 + Math.random() * 1.1;
+        // --- side contact: AABB vs sphere ---
+        if (e.hitCooldown <= 0) {
+          const gy = e.group.position.y;
+          const clampedX = Math.max(
+            e.x - halfS,
+            Math.min(player.pos.x, e.x + halfS),
+          );
+          const clampedY = Math.max(
+            gy - halfS,
+            Math.min(player.pos.y, gy + halfS),
+          );
+          const clampedZ = Math.max(
+            e.z - halfS,
+            Math.min(player.pos.z, e.z + halfS),
+          );
+          const contactDist = Math.hypot(
+            clampedX - player.pos.x,
+            clampedY - player.pos.y,
+            clampedZ - player.pos.z,
+          );
+          if (contactDist < playerRadius * 0.95) {
+            // only side hits here — top handled by stomp check above
+            const fromAbove =
+              clampedY >= gy + halfS - 0.12 && player.vel.y <= 0;
+            if (!fromAbove) {
+              const playerWasAirborne = !player.onGround;
+              e.hopContactThisAir = true;
+              // push player fully outside the box before applying knock
+              const overlapX = e.x + halfS - (player.pos.x - playerRadius);
+              const overlapNX = player.pos.x - e.x;
+              const overlapNZ = player.pos.z - e.z;
+              const overlapN = Math.max(
+                0.001,
+                Math.hypot(overlapNX, overlapNZ),
+              );
+              const penetration = halfS + playerRadius - contactDist;
+              if (penetration > 0) {
+                player.pos.x += (overlapNX / overlapN) * penetration;
+                player.pos.z += (overlapNZ / overlapN) * penetration;
+              }
+              // always knock the player back
+              const knockX = overlapNX;
+              const knockZ = overlapNZ;
+              const knockN = Math.max(0.01, Math.hypot(knockX, knockZ));
+              player.vel.x = (knockX / knockN) * 24;
+              player.vel.z = (knockZ / knockN) * 24;
+              player.vel.y = Math.max(player.vel.y, 10);
+              player.onGround = false;
+              e.hitCooldown = 0.5;
+              // shrink only during rage AND the player was airborne
+              if (inRage && playerWasAirborne) {
+                e.hp--;
+                spawnSmokePuff(e.group.position.clone(), 8);
+                if (e.hp <= 0) {
+                  defeatEnemy(e);
+                  return;
+                }
+                e.group.scale.setScalar(0.65);
+              }
+            }
           }
         }
       }
 
       function updateEnemies(dt) {
-        for (const e of enemies) {
+        // iterate backwards so defeatEnemy splices don't skip entries
+        for (let i = enemies.length - 1; i >= 0; i--) {
+          const e = enemies[i];
           if (e.type === "purple") updatePurple(e, dt);
           else if (e.type === "pyramid") updatePyramid(e, dt);
           else if (e.type === "dice") updateDice(e, dt);
@@ -850,7 +1071,7 @@
         updateSmoke(dt);
         if (pyramidSmashedPlayer) {
           pyramidSmashedPlayer = false;
-          resetGame();
+          triggerDeath();
         }
       }
 
@@ -874,9 +1095,11 @@
 
       // ---------- level data — sourced from data/levels/0.json ----------
       // Convert JSON hex string ("#rrggbb") to number for Three.js
-      function hexStr(s) { return parseInt(s.replace('#', ''), 16); }
-      const LEVEL_DATA = levelJson.platforms.map(p =>
-        Object.assign({}, p, { color: hexStr(p.color) })
+      function hexStr(s) {
+        return parseInt(s.replace("#", ""), 16);
+      }
+      const LEVEL_DATA = levelJson.platforms.map((p) =>
+        Object.assign({}, p, { color: hexStr(p.color) }),
       );
 
       function populateEnemies() {
@@ -885,9 +1108,11 @@
           if (!npcs.length) continue;
           const plat = platforms[i];
           for (const npc of npcs) {
-            if (npc.type === "purple") createPurplePatrol(plat);
-            else if (npc.type === "pyramid") createPyramid(plat);
-            else if (npc.type === "dice") createDice(plat);
+            let e;
+            if (npc.type === "purple") e = createPurplePatrol(plat);
+            else if (npc.type === "pyramid") e = createPyramid(plat);
+            else if (npc.type === "dice") e = createDice(plat);
+            if (e && npc.onDefeat) e.onDefeat = npc.onDefeat;
           }
         }
       }
@@ -998,6 +1223,18 @@
       const clock = new THREE.Clock();
 
       let won = false;
+      let dying = false; // true during death animation before full reset
+      let dyingT = 0;
+      const DYING_DURATION = 1.6;
+
+      function triggerDeath() {
+        if (dying || won) return;
+        dying = true;
+        dyingT = 0;
+        player.vel.set(0, 0, 0);
+        player.squashTarget = 0.1; // pancake flat
+        document.getElementById("dead").classList.add("show");
+      }
 
       function resetGame() {
         const spawn = getSpawnPos();
@@ -1008,7 +1245,10 @@
         player.squashTarget = 1;
         cameraAngle = 0;
         won = false;
+        dying = false;
+        dyingT = 0;
         document.getElementById("win").classList.remove("show");
+        document.getElementById("dead").classList.remove("show");
 
         for (const p of platforms) {
           p.userData.active = true;
@@ -1173,17 +1413,14 @@
               if (p.userData.type === "red" && p.userData.timer === null) {
                 p.userData.timer = 0;
               }
-              if (p.userData.type === "orange" && !won) {
-                triggerWin(p);
-              }
             }
           }
         }
 
         if (!landed && player.vel.y < 0) player.onGround = false;
 
-        // fall-out reset
-        if (player.pos.y < -40) resetGame();
+        // fall-out death
+        if (player.pos.y < -40) triggerDeath();
 
         // squash spring
         player.squashTarget +=
@@ -1218,6 +1455,54 @@
         camera.lookAt(player.pos.x, player.pos.y + 1.2, player.pos.z);
       }
 
+      // ---------- enemy defeat ----------
+      function defeatEnemy(e) {
+        spawnSmokePuff(e.group.position.clone(), 12);
+        enemyGroup.remove(e.group);
+        e.group.traverse((o) => {
+          if (o.geometry) o.geometry.dispose?.();
+          if (o.material) o.material.dispose?.();
+        });
+        const idx = enemies.indexOf(e);
+        if (idx !== -1) enemies.splice(idx, 1);
+        if (e.onDefeat === "LEVEL_COMPLETED" && !won) {
+          triggerWin(e.platform);
+        }
+      }
+
+      function checkEnemyStomp() {
+        if (player.vel.y >= 0) return;
+        const feetY = player.pos.y - playerRadius;
+        for (let i = enemies.length - 1; i >= 0; i--) {
+          const e = enemies[i];
+          if (!e.group.visible) continue;
+          if (e.type === "dice") continue; // dice stomp handled inside updateDice
+          let topH, horizRadius;
+          if (e.type === "pyramid") {
+            topH = 0.6;
+            horizRadius = playerRadius + 0.7;
+          } else {
+            topH = 0.45;
+            horizRadius = playerRadius + 0.7;
+          }
+          const enemyTop = e.group.position.y + topH;
+          const horiz = Math.hypot(
+            player.pos.x - e.group.position.x,
+            player.pos.z - e.group.position.z,
+          );
+          if (
+            horiz < horizRadius &&
+            feetY >= enemyTop - 0.4 &&
+            feetY <= enemyTop + 0.6
+          ) {
+            player.vel.y = JUMP_V * 0.8;
+            player.onGround = false;
+            player.squashTarget = 1.3;
+            defeatEnemy(e);
+          }
+        }
+      }
+
       // ---------- win sequence ----------
       let winTimer = 0;
       function triggerWin(finalP) {
@@ -1248,7 +1533,27 @@
       // ---------- animate ----------
       function animate() {
         const dt = Math.min(0.033, clock.getDelta());
+
+        if (dying) {
+          dyingT += dt;
+          // keep squashing toward pancake
+          player.squashTarget +=
+            (0.08 - player.squashTarget) * Math.min(1, dt * 8);
+          player.squash +=
+            (player.squashTarget - player.squash) * Math.min(1, dt * 14);
+          const sq = Math.max(0.01, player.squash);
+          playerGroup.scale.set(1 / Math.sqrt(sq), sq, 1 / Math.sqrt(sq));
+          playerGroup.position.copy(player.pos);
+          if (dyingT >= DYING_DURATION) {
+            resetGame();
+          }
+          renderer.render(scene, camera);
+          requestAnimationFrame(animate);
+          return;
+        }
+
         update(dt);
+        checkEnemyStomp();
         updateEnemies(dt);
         updateVanish(dt);
 

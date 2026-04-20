@@ -1,6 +1,6 @@
 {
   "title": "The Long Road Up",
-  "startPlatform": 19,
+  "startPlatform": 20,
   "platforms": [
     {
       "x": 0.0,
@@ -128,7 +128,7 @@
       "w": 3.6,
       "h": 0.9,
       "d": 3.6,
-      "npcs": [{ "type": "dice" }]
+      "npcs": []
     },
     {
       "x": -2.8,
@@ -174,7 +174,7 @@
       "w": 3.0,
       "h": 0.8,
       "d": 3.0,
-      "npcs": [{ "type": "dice" }]
+      "npcs": []
     },
     {
       "x": 1.5,
@@ -252,9 +252,9 @@
       "type": "orange",
       "shape": "hex",
       "color": "#ff8a2b",
-      "r": 9.0,
+      "r": 11.0,
       "h": 1.4,
-      "npcs": []
+      "npcs": [{ "type": "dice", "onDefeat": "LEVEL_COMPLETED" }]
     }
   ]
 }
