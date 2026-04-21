@@ -1199,6 +1199,58 @@
       const camDist = 9;
       const camHeight = 5;
 
+      // ---------- intro fly-through ----------
+      let introCam = false; // true while the opening cinematic is running
+      let introT = 0;
+      const INTRO_DURATION = 4.0; // seconds
+      const introCamFrom = new THREE.Vector3();
+      const introCamTo = new THREE.Vector3();
+      const introLookFrom = new THREE.Vector3();
+      const introLookTo = new THREE.Vector3();
+
+      function easeInOut(t) {
+        return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+      }
+
+      function startIntroFly() {
+        // find the goal platform
+        const goalIdx = levelJson.platforms.findIndex((p) => p.goal);
+        if (goalIdx === -1) return; // no goal defined, skip intro
+        const goalPlat = platforms[goalIdx];
+        const spawnPos = getSpawnPos();
+
+        // camera start: above the goal platform, pulled back a bit
+        const gTopY =
+          goalPlat.position.y +
+          (goalPlat.userData.halfH ?? goalPlat.userData.halfSize?.y ?? 0.5);
+        introCamFrom.set(
+          goalPlat.position.x + Math.sin(cameraAngle) * camDist * 1.6,
+          gTopY + camHeight * 2.5,
+          goalPlat.position.z + Math.cos(cameraAngle) * camDist * 1.6,
+        );
+        introLookFrom.set(
+          goalPlat.position.x,
+          gTopY + 1.5,
+          goalPlat.position.z,
+        );
+
+        // camera end: normal follow position behind spawn
+        introCamTo.set(
+          spawnPos.x + Math.sin(cameraAngle) * camDist,
+          spawnPos.y + camHeight,
+          spawnPos.z + Math.cos(cameraAngle) * camDist,
+        );
+        introLookTo.set(spawnPos.x, spawnPos.y + 1.2, spawnPos.z);
+
+        // position the camera immediately at the goal so there's no single-frame pop
+        camera.position.copy(introCamFrom);
+        camera.lookAt(introLookFrom);
+
+        introCam = true;
+        introT = 0;
+        document.getElementById("info").style.opacity = "0";
+      }
+
       // ---------- input ----------
       const keys = {};
       window.addEventListener("keydown", (e) => {
@@ -1214,6 +1266,9 @@
       window.addEventListener("keyup", (e) => {
         keys[e.code] = false;
       });
+
+      // start cinematic intro now that all dependencies (playerRadius, camera vars) exist
+      startIntroFly();
 
       // ---------- physics ----------
       const GRAVITY = -34;
@@ -1237,6 +1292,8 @@
       }
 
       function resetGame() {
+        introCam = false; // skip intro on manual reset
+        document.getElementById("info").style.opacity = "";
         const spawn = getSpawnPos();
         player.pos.copy(spawn);
         player.vel.set(0, 0, 0);
@@ -1280,8 +1337,8 @@
       function update(dt) {
         // camera orbit
         const orbitSpeed = 2.2;
-        if (keys["ArrowLeft"]) cameraAngle += orbitSpeed * dt;
-        if (keys["ArrowRight"]) cameraAngle -= orbitSpeed * dt;
+        if (!introCam && keys["ArrowLeft"]) cameraAngle += orbitSpeed * dt;
+        if (!introCam && keys["ArrowRight"]) cameraAngle -= orbitSpeed * dt;
 
         // forward in world space based on camera (away from camera)
         const fx = -Math.sin(cameraAngle);
@@ -1289,7 +1346,7 @@
 
         let mx = 0,
           mz = 0;
-        if (!won) {
+        if (!won && !introCam) {
           if (keys["ArrowUp"]) {
             mx += fx;
             mz += fz;
@@ -1313,7 +1370,7 @@
         player.vel.z += (targetVz - player.vel.z) * Math.min(1, accel * dt);
 
         // jump
-        if (!won && keys["Space"] && player.onGround) {
+        if (!won && !introCam && keys["Space"] && player.onGround) {
           player.vel.y = JUMP_V;
           player.onGround = false;
           player.squashTarget = 1.35; // stretch up
@@ -1533,6 +1590,32 @@
       // ---------- animate ----------
       function animate() {
         const dt = Math.min(0.033, clock.getDelta());
+
+        // ---- intro fly-through ----
+        if (introCam) {
+          introT += dt;
+          const t = Math.min(1, introT / INTRO_DURATION);
+          const et = easeInOut(t);
+          camera.position.lerpVectors(introCamFrom, introCamTo, et);
+          const lookAt = new THREE.Vector3().lerpVectors(
+            introLookFrom,
+            introLookTo,
+            et,
+          );
+          camera.lookAt(lookAt);
+          // update enemies so they animate during the cinematic
+          updateEnemies(dt);
+          nebula.rotation.y += dt * 0.01;
+          renderer.render(scene, camera);
+          requestAnimationFrame(animate);
+          if (t >= 1) {
+            introCam = false;
+            // fade info back in
+            document.getElementById("info").style.transition = "opacity 0.6s";
+            document.getElementById("info").style.opacity = "1";
+          }
+          return;
+        }
 
         if (dying) {
           dyingT += dt;

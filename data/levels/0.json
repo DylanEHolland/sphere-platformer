@@ -1,6 +1,5 @@
 {
   "title": "The Long Road Up",
-  "startPlatform": 20,
   "platforms": [
     {
       "x": 0.0,
@@ -254,6 +253,7 @@
       "color": "#ff8a2b",
       "r": 11.0,
       "h": 1.4,
+      "goal": true,
       "npcs": [{ "type": "dice", "onDefeat": "LEVEL_COMPLETED" }]
     }
   ]
