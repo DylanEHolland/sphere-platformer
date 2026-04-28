@@ -14,3 +14,8 @@ export const INTRO_DURATION = 4.0;
 // Camera
 export const CAM_DIST = 9;
 export const CAM_HEIGHT = 5;
+
+// Platform actions
+export const PLATFORM_ACTIONS = {
+  LEVEL_COMPLETED: "LEVEL_COMPLETED",
+};

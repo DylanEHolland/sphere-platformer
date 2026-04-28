@@ -39,12 +39,9 @@ body {
   justify-content: center;
   flex-direction: column;
   text-align: center;
-  background: radial-gradient(
-    circle at center,
-    rgba(255, 138, 43, 0.25),
-    transparent 60%
-  );
+  background: rgba(0, 130, 0, 0.82);
   pointer-events: none;
+  transition: opacity 0.18s ease;
 }
 
 #win.show {
@@ -52,13 +49,11 @@ body {
 }
 
 #win h1 {
-  font-size: 64px;
+  font-size: 56px;
   margin: 0;
-  color: #ffb347;
-  text-shadow:
-    0 0 24px rgba(255, 138, 43, 0.9),
-    0 0 40px rgba(255, 138, 43, 0.4);
-  animation: pulse 1.4s ease-in-out infinite;
+  color: #fff;
+  text-shadow: 0 0 24px rgba(0, 255, 0, 0.9);
+  animation: pulse 1s ease-in-out infinite;
 }
 
 #win p {

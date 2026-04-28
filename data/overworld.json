@@ -1,0 +1,17 @@
+[
+  {
+    "name": "Level 1",
+    "level": 0,
+    "location": [650, 960]
+  },
+  {
+    "name": "Level 2",
+    "level": 1,
+    "location": [900, 800]
+  },
+  {
+    "name": "Level 3",
+    "level": 2,
+    "location": [740, 650]
+  }
+]

@@ -3,6 +3,6 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "start": "npx serve ."
+    "start": "node ./scripts/write-runtime-env.mjs && npx serve ."
   }
 }

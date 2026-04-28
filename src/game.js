@@ -6,6 +6,7 @@ import {
   BOUNCE_MIN_V,
   PLAYER_RADIUS,
   DYING_DURATION,
+  PLATFORM_ACTIONS,
 } from "./constants.js";
 import { player, playerGroup, ball } from "./player.js";
 import { platforms } from "./platforms.js";
@@ -31,6 +32,7 @@ export const state = {
   dyingT: 0,
 };
 let winTimer = 0;
+let groundPlatform = null;
 
 export function triggerDeath() {
   if (state.dying || state.won) return;
@@ -46,6 +48,7 @@ setDeathCallback(triggerDeath);
 setLevelCompleteCallback(triggerWin);
 
 export function triggerWin(finalP) {
+  if (state.won || state.dying) return;
   state.won = true;
   winTimer = 0;
   document.getElementById("win").classList.add("show");
@@ -65,6 +68,7 @@ export function resetGame(getSpawnPos, resetPlatforms, startIntroFly) {
   player.onGround = false;
   player.squash = 1;
   player.squashTarget = 1;
+  groundPlatform = null;
   setCameraAngle(0);
   state.won = false;
   state.dying = false;
@@ -122,7 +126,14 @@ export function update(dt) {
   player.vel.y += GRAVITY * dt;
   player.pos.addScaledVector(player.vel, dt);
 
+  if (player.onGround && groundPlatform?.userData?.platformVel) {
+    const pv = groundPlatform.userData.platformVel;
+    player.pos.x += pv.x * dt;
+    player.pos.z += pv.z * dt;
+  }
+
   let landed = false;
+  let landedPlatform = null;
   for (const p of platforms) {
     if (!p.userData.active) continue;
 
@@ -159,14 +170,23 @@ export function update(dt) {
           player.squashTarget = 0.82;
         }
         landed = true;
+        landedPlatform = p;
 
         if (p.userData.type === "red" && p.userData.timer === null) {
           p.userData.timer = 0;
+        }
+
+        if (
+          !state.won &&
+          p.userData.actions?.onLand === PLATFORM_ACTIONS.LEVEL_COMPLETED
+        ) {
+          triggerWin(p);
         }
       }
     }
   }
 
+  groundPlatform = landedPlatform;
   if (!landed && player.vel.y < 0) player.onGround = false;
 
   if (player.pos.y < -40) triggerDeath();

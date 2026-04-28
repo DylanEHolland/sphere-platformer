@@ -1,0 +1,113 @@
+{
+  "title": "Starting on the Path",
+  "platforms": [
+    {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0,
+      "type": "blue",
+      "shape": "box",
+      "color": "#3a7fff",
+      "w": 6.0,
+      "h": 1.0,
+      "d": 6.0,
+      "npcs": []
+    },
+    {
+      "x": 0.0,
+      "y": 0.0,
+      "z": -10,
+      "endX": 0.0,
+      "endY": 0.0,
+      "endZ": -30,
+      "type": "move-cycle",
+      "shape": "box",
+      "color": "#007f00",
+      "w": 6.0,
+      "h": 1.0,
+      "d": 6.0,
+      "speed": 2,
+      "pause": 2000,
+      "npcs": []
+    },
+    {
+      "x": 0.0,
+      "y": 0.0,
+      "z": -40,
+      "type": "blue",
+      "shape": "box",
+      "color": "#3a7fff",
+      "w": 6.0,
+      "h": 1.0,
+      "d": 6.0,
+      "npcs": [{ "type": "pyramid" }]
+    },
+    {
+      "x": 0.0,
+      "y": 0.0,
+      "z": -50,
+      "endX": 0.0,
+      "endY": 30.0,
+      "endZ": -50,
+      "type": "move-cycle",
+      "shape": "box",
+      "color": "#007f00",
+      "w": 6.0,
+      "h": 1.0,
+      "d": 6.0,
+      "speed": 2,
+      "pause": 2000,
+      "npcs": []
+    },
+    {
+      "x": 1.0,
+      "y": 30,
+      "z": -40,
+      "type": "orange",
+      "shape": "hex",
+      "color": "#ff8a2b",
+      "r": 6.0,
+      "h": 1.4,
+      "npcs": [{ "type": "purple" }]
+    },
+    {
+      "x": -10.0,
+      "y": 32,
+      "z": -40,
+      "type": "blue",
+      "shape": "box",
+      "color": "#3a7fff",
+      "w": 6.0,
+      "h": 1.0,
+      "d": 6.0
+    },
+    {
+      "x": -10.0,
+      "y": 32,
+      "z": -30,
+      "endX": -10,
+      "endY": 32,
+      "endZ": -10,
+      "type": "move-cycle",
+      "shape": "box",
+      "color": "#007f00",
+      "w": 6.0,
+      "h": 1.0,
+      "d": 6.0,
+      "speed": 2,
+      "pause": 2000,
+      "npcs": []
+    },
+    {
+      "x": -10,
+      "y": 32,
+      "z": 0,
+      "type": "white",
+      "shape": "hex",
+      "color": "#ffffff",
+      "r": 6.0,
+      "h": 1.4,
+      "goal": true
+    }
+  ]
+}
